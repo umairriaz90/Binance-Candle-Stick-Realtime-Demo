@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "264435704665",
+    "project_id": "dewbet-jkfn88",
+    "storage_bucket": "dewbet-jkfn88.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:264435704665:android:2bdb261b8a9866c9c7a248",
+        "android_client_info": {
+          "package_name": "com.example.binance_demo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA92LDQMf9_yI9Qm8C8Uu9zfwmu1y2QUN8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,3 +1,6 @@
+
+# Add this line to your .gitignore file
+.env
 # Miscellaneous
 *.class
 *.log

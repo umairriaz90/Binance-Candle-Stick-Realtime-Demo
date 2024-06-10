@@ -1,40 +1,40 @@
-import 'dart:async';
-
-import 'package:binance_demo/presentation/views/home/home_view.dart';
-import 'package:binance_demo/utils/utils.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-// ignore: constant_identifier_names
-class Main {}
+import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
+import 'phone_auth_screen.dart';
+import 'walletProvider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
-  final _logger = appLogger(Main);
-  await runZonedGuarded(
-    () async {
-      WidgetsFlutterBinding.ensureInitialized();
-
-      runApp(const ProviderScope(child: MyApp()));
-    },
-    (error, stackTrace) => _logger.e(
-      error.toString(),
-      stackTrace: stackTrace,
-      functionName: "main",
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: FirebaseOptions(
+      apiKey: "AIzaSyCQTo-OrPzu6sgIlNdwOwfxl7yWhxSniJM",
+      authDomain: "dewbet-jkfn88.firebaseapp.com",
+      projectId: "dewbet-jkfn88",
+      storageBucket: "dewbet-jkfn88.appspot.com",
+      messagingSenderId: "264435704665",
+      appId: "1:264435704665:web:8c2b74c94871aac8c7a248"
     ),
   );
+  await dotenv.load(fileName: ".env");
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Binance-Demo',
-      theme: AppTheme.lightTheme,
-      darkTheme: AppTheme.darkTheme,
-      debugShowCheckedModeBanner: false,
-      home: const HomeView(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => WalletProvider()),
+      ],
+      child: MaterialApp(
+        title: 'Phone OTP Authentication',
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+        ),
+        home: PhoneAuthScreen(),
+      ),
     );
   }
 }
