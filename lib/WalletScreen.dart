@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter/services.dart'; // Import this for clipboard functionality
+import 'package:web3dart/web3dart.dart'; // Import this for EthereumAddress
 import 'walletProvider.dart';
 
 class WalletScreen extends StatelessWidget {
+  final TextEditingController _recipientController = TextEditingController();
+  final TextEditingController _amountController = TextEditingController();
+
   @override
   Widget build(BuildContext context) {
     final walletProvider = Provider.of<WalletProvider>(context);
@@ -21,10 +26,27 @@ class WalletScreen extends StatelessWidget {
             else
               Column(
                 children: [
-                  Text(
-                    'Address: ${walletProvider.address}',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    textAlign: TextAlign.center,
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Address: ${walletProvider.address ?? 'No address available'}',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      if (walletProvider.address != null)
+                        IconButton(
+                          icon: Icon(Icons.copy),
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: walletProvider.address!));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('Address copied to clipboard')),
+                            );
+                          },
+                        ),
+                    ],
                   ),
                   SizedBox(height: 16),
                   Text(
@@ -33,10 +55,39 @@ class WalletScreen extends StatelessWidget {
                     textAlign: TextAlign.center,
                   ),
                   SizedBox(height: 16),
+                  TextField(
+                    controller: _recipientController,
+                    decoration: InputDecoration(labelText: 'Recipient Address'),
+                  ),
+                  SizedBox(height: 16),
+                  TextField(
+                    controller: _amountController,
+                    decoration: InputDecoration(labelText: 'Amount to Send'),
+                    keyboardType: TextInputType.number,
+                  ),
+                  SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: () {
-                      // Example of sending USDT
-                      // walletProvider.sendUSDT(EthereumAddress.fromHex("recipient_address"), BigInt.from(10));
+                    onPressed: () async {
+                      final recipientAddress = _recipientController.text;
+                      final amountText = _amountController.text;
+
+                      if (recipientAddress.isNotEmpty && amountText.isNotEmpty) {
+                        final amount = BigInt.tryParse(amountText);
+                        if (amount != null) {
+                          await walletProvider.sendUSDT(
+                            EthereumAddress.fromHex(recipientAddress),
+                            amount,
+                          );
+                        } else {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Invalid amount')),
+                          );
+                        }
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Please enter recipient address and amount')),
+                        );
+                      }
                     },
                     child: Text('Send USDT'),
                   ),
