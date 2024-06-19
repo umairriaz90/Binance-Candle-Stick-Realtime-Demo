@@ -50,7 +50,13 @@ class WalletScreen extends StatelessWidget {
                   ),
                   SizedBox(height: 16),
                   Text(
-                    'USDT Balance: ${walletProvider.balance}',
+                    'ETH Balance: ${walletProvider.ethBalance}', // Added ETH balance display
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    textAlign: TextAlign.center,
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    'USDT Balance: ${walletProvider.usdtBalance}',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     textAlign: TextAlign.center,
                   ),

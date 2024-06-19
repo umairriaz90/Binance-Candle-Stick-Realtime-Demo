@@ -1,13 +1,11 @@
-import 'dart:convert'; // Import this for jsonEncode and jsonDecode
-import 'dart:typed_data'; // Import this for Uint8List
 import 'package:flutter/material.dart';
-import 'package:http/http.dart';
+import 'package:http/http.dart' as http;
 import 'package:web3dart/web3dart.dart' as web3;
-import 'package:web3dart/crypto.dart';
+import 'package:web3dart/crypto.dart' as crypto;
+import 'dart:convert';
 import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
@@ -15,15 +13,17 @@ class WalletProvider extends ChangeNotifier {
   final _storage = FlutterSecureStorage();
   final _client = web3.Web3Client(
     'https://polygon-amoy.infura.io/v3/${dotenv.env['INFURA_PROJECT_ID']}',
-    Client(),
+    http.Client(),
   );
   String? _privateKey;
   String? _address;
-  String _balance = '0';
+  String _ethBalance = '0';
+  String _usdtBalance = '0';
   bool _isLoading = false;
 
   String? get address => _address;
-  String get balance => _balance;
+  String get ethBalance => _ethBalance;
+  String get usdtBalance => _usdtBalance;
   bool get isLoading => _isLoading;
 
   WalletProvider() {
@@ -31,43 +31,62 @@ class WalletProvider extends ChangeNotifier {
   }
 
   Future<void> _loadOrCreateWallet() async {
-    try {
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user == null) {
-        // Handle user not logged in
-        return;
-      }
-
-      final storageRef = FirebaseStorage.instance.ref().child('users/${user.uid}/wallet.json');
-      try {
-        final walletData = await storageRef.getData();
-        if (walletData != null) {
-          final walletJson = jsonDecode(utf8.decode(walletData));
-          _privateKey = walletJson['privateKey'];
-          _address = walletJson['address'];
-        } else {
-          throw Exception("Wallet data is null");
-        }
-      } catch (e) {
-        // If wallet data does not exist, create a new wallet
-        final rng = Random.secure();
-        web3.EthPrivateKey credentials = web3.EthPrivateKey.createRandom(rng);
-        _privateKey = bytesToHex(credentials.privateKey);
-        _address = (await credentials.extractAddress()).hex;
-
-        final walletJson = jsonEncode({
-          'privateKey': _privateKey,
-          'address': _address,
-        });
-
-        await storageRef.putString(walletJson);
-      }
-
-      notifyListeners();
-      await _getUSDTBalance();
-    } catch (e) {
-      print('Error in _loadOrCreateWallet: $e');
+    User? user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      // Handle user not logged in
+      return;
     }
+
+    final storageRef = FirebaseStorage.instance.ref().child('wallets/${user.uid}');
+    try {
+      final userDoc = await storageRef.getData();
+      if (userDoc != null) {
+        final data = jsonDecode(utf8.decode(userDoc!));
+        _privateKey = data['privateKey'];
+        _address = data['address'];
+      } else {
+        await _createNewWallet(user, storageRef);
+      }
+    } catch (e) {
+      print('Error loading wallet: $e');
+      await _createNewWallet(user, storageRef);
+    }
+
+    notifyListeners();
+    await fetchBalances();
+  }
+
+  Future<void> _createNewWallet(User user, Reference storageRef) async {
+    final rng = Random.secure();
+    final credentials = web3.EthPrivateKey.createRandom(rng);
+    _privateKey = crypto.bytesToHex(credentials.privateKey);
+    _address = (await credentials.extractAddress()).hex;
+
+    final data = jsonEncode({'privateKey': _privateKey, 'address': _address});
+    await storageRef.putData(utf8.encode(data));
+
+    notifyListeners();
+  }
+
+  Future<void> fetchBalances() async {
+    await _getETHBalance();
+    await _getUSDTBalance();
+  }
+
+  Future<void> _getETHBalance() async {
+    if (_address == null) return;
+
+    try {
+      setLoading(true);
+      final balance = await _client.getBalance(web3.EthereumAddress.fromHex(_address!));
+      _ethBalance = balance.getValueInUnit(web3.EtherUnit.ether).toString();
+    } catch (e) {
+      print('Error getting ETH balance: $e');
+    } finally {
+      setLoading(false);
+    }
+
+    notifyListeners();
   }
 
   Future<void> _getUSDTBalance() async {
@@ -87,9 +106,9 @@ class WalletProvider extends ChangeNotifier {
         params: [web3.EthereumAddress.fromHex(_address!)],
       );
 
-      _balance = balance.first.toString();
+      _usdtBalance = balance.first.toString();
     } catch (e) {
-      print('Error getting balance: $e');
+      print('Error getting USDT balance: $e');
     } finally {
       setLoading(false);
     }
@@ -116,10 +135,10 @@ class WalletProvider extends ChangeNotifier {
           function: function,
           parameters: [recipient, amount],
         ),
-        chainId: 80001, // Polygon Mumbai Testnet
+        chainId: 80002, // Polygon Amoy Testnet
       );
 
-      _getUSDTBalance(); // Update balance after sending
+      await _getUSDTBalance(); // Update balance after sending
     } catch (e) {
       print('Error sending USDT: $e');
     } finally {
@@ -134,5 +153,20 @@ class WalletProvider extends ChangeNotifier {
 }
 
 const erc20Abi = '''
-[{"inputs":[],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[{"internalType":"uint256","name":"supplyAfterMint","type":"uint256"}],"name":"MaxSupplyExceeded","type":"error"},{"inputs":[{"internalType":"address","name":"sender","type":"address"}],"name":"SenderNotBurner","type":"error"},{"inputs":[{"internalType":"address","name":"sender","type":"address"}],"name":"SenderNotMinter","type":"error"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"owner","type":"address"},{"indexed":true,"internalType":"address","name":"spender","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Approval","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"burner","type":"address"}],"name":"BurnAccessGranted","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"burner","type":"address"}],"name":"BurnAccessRevoked","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"minter","type":"address"}],"name":"MintAccessGranted","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"minter","type":"address"}],"name":"MintAccessRevoked","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"}],"name":"OwnershipTransferRequested","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"}],"name":"OwnershipTransferred","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"}],"name":"Transfer","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"from","type":"address"},{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"}],"name":"Transfer","type":"event"},{"inputs":[],"name":"acceptOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"burn","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"burn","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"burnFrom","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"decimals","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"subtractedValue","type":"uint256"}],"name":"decreaseAllowance","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"subtractedValue","type":"uint256"}],"name":"decreaseApproval","outputs":[{"internalType":"bool","name":"success","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"getBurners","outputs":[{"internalType":"address[]","name":"","type":"address[]"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"getMinters","outputs":[{"internalType":"address[]","name":"","type":"address[]"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"burner","type":"address"}],"name":"grantBurnRole","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"burnAndMinter","type":"address"}],"name":"grantMintAndBurnRoles","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"minter","type":"address"}],"name":"grantMintRole","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"addedValue","type":"uint256"}],"name":"increaseAllowance","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"addedValue","type":"uint256"}],"name":"increaseApproval","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"burner","type":"address"}],"name":"isBurner","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"minter","type":"address"}],"name":"isMinter","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"maxSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"account","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"mint","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"burner","type":"address"}],"name":"revokeBurnRole","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"minter","type":"address"}],"name":"revokeMintRole","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes4","name":"interfaceId","type":"bytes4"}],"name":"supportsInterface","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"pure","type":"function"},{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transfer","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"},{"internalType":"bytes","name":"data","type":"bytes"}],"name":"transferAndCall","outputs":[{"internalType":"bool","name":"success","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"transferFrom","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"to","type":"address"}],"name":"transferOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"}]
+[
+  {
+    "constant": true,
+    "inputs": [{"name": "_owner", "type": "address"}],
+    "name": "balanceOf",
+    "outputs": [{"name": "balance", "type": "uint256"}],
+    "type": "function"
+  },
+  {
+    "constant": false,
+    "inputs": [{"name": "_to", "type": "address"}, {"name": "_value", "type": "uint256"}],
+    "name": "transfer",
+    "outputs": [{"name": "success", "type": "bool"}],
+    "type": "function"
+  }
+]
 ''';

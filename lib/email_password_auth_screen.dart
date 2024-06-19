@@ -10,7 +10,6 @@ class EmailPasswordAuthScreen extends StatefulWidget {
 class _EmailPasswordAuthScreenState extends State<EmailPasswordAuthScreen> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-
   bool _isLoading = false;
 
   void _signInWithEmailAndPassword() async {
