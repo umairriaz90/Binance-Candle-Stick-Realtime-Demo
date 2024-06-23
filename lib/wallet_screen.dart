@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:web3dart/web3dart.dart' as web3;
-import 'walletProvider.dart';
+import 'wallet_provider.dart';
 
 class WalletScreen extends StatelessWidget {
   final _recipientController = TextEditingController();
